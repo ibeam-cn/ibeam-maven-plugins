@@ -234,6 +234,7 @@ public class CodeGenerateMojo extends AbstractMojo {
                 Map<String, Object> model = new HashMap<>();
                 model.put("table", table);
                 model.put("domain", domain);
+                model.put("database", this.database);
 
                 String code = render(writer, codeMaker, "entity", model);
                 File codeFile = getCodeFile(sourceDir, code);
