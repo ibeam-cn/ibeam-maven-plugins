@@ -18,6 +18,7 @@ import ibeam.jdbc.TableParser;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.maven.artifact.repository.ArtifactRepository;
+import org.apache.maven.model.Dependency;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -44,79 +45,6 @@ import java.util.regex.Pattern;
 //		requiresDependencyResolution = ResolutionScope.COMPILE,
 //		threadSafe = false )process-sources
 public class CodeGenerateMojo extends AbstractMojo {
-
-    /**
-     * set if generator should overwrite the exist code or update file
-     *
-     * @parameter expression="${ibeam.generator.overWriteDao}" default-value="false"
-     * @since 1.0
-     */
-    private boolean overWriteClass;
-
-    /**
-     * tables which won't generate code for, support regex
-     *
-     * @parameter expression="${ibeam.generator.ignoreTables}" default-value=""
-     * @since 1.0
-     */
-    private String ignoreTables;
-
-    /**
-     * 要忽略的表名,使用,分隔
-     *
-     * @parameter expression="${encoding}" default-value="UTF-8"
-     * @since 1.0
-     */
-    private String encoding;
-
-    /**
-     * base package
-     *
-     * @parameter expression="${ibeam.generator.basePackage}"
-     * @since 1.0
-     */
-    private String basePackage;
-
-    /**
-     * database to read
-     *
-     * @parameter expression="${ibeam.generator.database}"
-     * @required
-     * @since 1.0
-     */
-    private String database;
-
-    /**
-     * replace table name with blank string, support regex
-     *
-     * @parameter expression="${ibeam.generator.tableIgnoreRegex}" default-value="([-_][0-9]+)"
-     * @since 1.0
-     */
-    private String tableIgnoreRegex;
-
-    /**
-     * when convert table name to class name, which chars will be ignored
-     *
-     * @parameter expression="${ibeam.generator.classIgnoreRegex}" default-value=""
-     * @since 1.0
-     */
-    private String classIgnoreRegex;
-
-    /**
-     * freeMaker template root path
-     *
-     * @parameter expression="${ibeam.generator.templatePath}" default-value=""
-     * @since 1.0
-     */
-    private String templatePath;
-
-    /**
-     * Skip generator
-     *
-     * @parameter expression="${ibeam.generator.skip}" default-value=false
-     */
-    private boolean skip;
-
     /**
      * Root location of the local maven repository.
      *
@@ -135,6 +63,78 @@ public class CodeGenerateMojo extends AbstractMojo {
      */
     private MavenProject project;
 
+    /**
+     * set if generator should overwrite the exist code or update file
+     *
+     * @parameter expression="${overWriteDao}" default-value="false"
+     * @since 1.0
+     */
+    private boolean overWriteClass;
+
+    /**
+     * tables which won't generate code for, support regex
+     *
+     * @parameter expression="${ignoreTables}" default-value=""
+     * @since 1.0
+     */
+    private String ignoreTables;
+
+    /**
+     * source code encoding, default is UTF-8
+     *
+     * @parameter expression="${encoding}" default-value="UTF-8"
+     * @since 1.0
+     */
+    private String encoding;
+
+    /**
+     * base package
+     *
+     * @parameter expression="${basePackage}"
+     * @since 1.0
+     */
+    private String basePackage;
+
+    /**
+     * database to read
+     *
+     * @parameter expression="${database}"
+     * @required
+     * @since 1.0
+     */
+    private String database;
+
+    /**
+     * replace table name with blank string, support regex
+     *
+     * @parameter expression="${tableIgnoreRegex}" default-value="([-_][0-9]+)"
+     * @since 1.0
+     */
+    private String tableIgnoreRegex;
+
+    /**
+     * when convert table name to class name, which chars will be ignored
+     *
+     * @parameter expression="${classIgnoreRegex}" default-value=""
+     * @since 1.0
+     */
+    private String classIgnoreRegex;
+
+    /**
+     * freeMaker template root path
+     *
+     * @parameter expression="${templatePath}" default-value=""
+     * @since 1.0
+     */
+    private String templatePath;
+
+    /**
+     * Skip generator
+     *
+     * @parameter expression="${skip}" default-value=false
+     */
+    private boolean skip;
+
 
     private String getJdbcParam(Properties properties, String db, String env, String name) {
         String key = env + ".jdbc.";
@@ -143,6 +143,15 @@ public class CodeGenerateMojo extends AbstractMojo {
         }
         key += name;
         return properties.getProperty(key);
+    }
+
+    private boolean shouldGenerateWebApi() {
+        for (Dependency dependency : project.getDependencies()) {
+            if (dependency.getGroupId().equalsIgnoreCase("cn.ibeam.web")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -198,16 +207,21 @@ public class CodeGenerateMojo extends AbstractMojo {
             CodeMaker codeMaker = buildCodeMaker(rootDir);
             ReusableStringWriter writer = new ReusableStringWriter(1000);
             getLog().info("classIgnore: " + this.classIgnoreRegex);
-            final Pattern classNamePattern = BeamUtils.isNotBlank(this.classIgnoreRegex)?
-                    Pattern.compile(this.classIgnoreRegex): null;
+            final Pattern classNamePattern = BeamUtils.isNotBlank(this.classIgnoreRegex) ?
+                    Pattern.compile(this.classIgnoreRegex) : null;
+            boolean shouldGenerateWebApi = this.shouldGenerateWebApi();
+            if (!shouldGenerateWebApi) {
+                getLog().info("won't generate web related class as there is no cn.ibeam.web dependency in POM");
+            }
             for (Table table : tables) {
-                String domain = StringUtils.replaceAll(table.getDatabase(), "_-", ".");
+                String domain = StringUtils.replaceEachRepeatedly(table.getDatabase(),
+                        new String[]{"_", "-"}, new String[]{".", "."});
                 String className = table.getName();
-                if(null != classNamePattern){
+                if (null != classNamePattern) {
                     className = classNamePattern.matcher(className).replaceAll("");
                 }
                 table.setClassName(StringUtils.capitalize(BeamUtils.toPropertyName(className)));
-                getLog().info("table: [" + table.getName() + "] to: [" + table.getClassName() + "]" );
+                getLog().info("table: [" + table.getName() + "] to: [" + table.getClassName() + "]");
                 if (table.getShardCount() > 1) {
                     table.addPackage(ShardByMod.class);
                     table.addAnnotation("@ShardByMod(value = " + table.getShardCount() + ")");
@@ -223,8 +237,15 @@ public class CodeGenerateMojo extends AbstractMojo {
 
                 String code = render(writer, codeMaker, "entity", model);
                 File codeFile = getCodeFile(sourceDir, code);
-                if (codeFile.exists() && this.overWriteClass) {
-                    code = CodeUtils.overWriteEntity(table, FileUtils.readFileToString(codeFile, this.encoding));
+                if (codeFile.exists()) {
+                    if (this.overWriteClass) {
+                        getLog().info(codeFile.getAbsolutePath() + " will be overwrite " + table.getName());
+                        code = CodeUtils.overWriteEntity(table, FileUtils.readFileToString(codeFile, this.encoding));
+                        FileUtils.writeStringToFile(codeFile, code, this.encoding);
+                    } else {
+                        getLog().info(codeFile.getAbsolutePath() + " exist, will ignore " + table.getName());
+                    }
+                } else {
                     FileUtils.writeStringToFile(codeFile, code, this.encoding);
                 }
 
@@ -246,12 +267,14 @@ public class CodeGenerateMojo extends AbstractMojo {
                     FileUtils.writeStringToFile(codeFile, code, this.encoding);
                 }
 
-                code = render(writer, codeMaker, "api_controller" + suffix, model);
-                codeFile = getCodeFile(sourceDir, code);
-                if (codeFile.exists()) {
-                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
-                } else {
-                    FileUtils.writeStringToFile(codeFile, code, this.encoding);
+                if (shouldGenerateWebApi) {
+                    code = render(writer, codeMaker, "api_controller" + suffix, model);
+                    codeFile = getCodeFile(sourceDir, code);
+                    if (codeFile.exists()) {
+                        getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
+                    } else {
+                        FileUtils.writeStringToFile(codeFile, code, this.encoding);
+                    }
                 }
             }
 
@@ -291,8 +314,8 @@ public class CodeGenerateMojo extends AbstractMojo {
         }
         String packageName = packageDeclaration.get().getNameAsString();
         ClassOrInterfaceDeclaration classDeclaration = (ClassOrInterfaceDeclaration) cu.getTypes().get(0);
-        String className = classDeclaration.getNameAsString();
-        return FileUtils.getFile(sourceDir, StringUtils.split(packageName + "." + className, ".java"));
+        File parentFile = FileUtils.getFile(sourceDir, StringUtils.split(packageName, '.'));
+        return FileUtils.getFile(parentFile, classDeclaration.getNameAsString() + ".java");
     }
 
     private String render(ReusableStringWriter writer, CodeMaker codeMaker, String name, Map<String, Object> model) throws IOException {
@@ -356,7 +379,7 @@ public class CodeGenerateMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         if (skip) {
-            getLog().info( "IBeam code generator is skipped." );
+            getLog().info("IBeam code generator is skipped.");
             return;
         }
         this.executeCleanLocalRepositoryGoals();

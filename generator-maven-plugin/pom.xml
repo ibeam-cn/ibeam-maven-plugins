@@ -10,8 +10,7 @@
     </parent>
 
     <packaging>maven-plugin</packaging>
-    <groupId>cn.ibeam.maven.plugins</groupId>
-    <artifactId>code-generator-plugin</artifactId>
+    <artifactId>code-generator</artifactId>
     <version>1.0.0</version>
 
     <name>Generator Maven MOJO</name>
