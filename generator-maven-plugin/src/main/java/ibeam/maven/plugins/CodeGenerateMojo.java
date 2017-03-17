@@ -214,7 +214,7 @@ public class CodeGenerateMojo extends AbstractMojo {
                 getLog().info("won't generate web related class as there is no cn.ibeam.web dependency in POM");
             }
             for (Table table : tables) {
-                String domain = StringUtils.replaceEachRepeatedly(table.getDatabase(),
+                String domain = StringUtils.replaceEachRepeatedly(this.database,
                         new String[]{"_", "-"}, new String[]{".", "."});
                 String className = table.getName();
                 if (null != classNamePattern) {
