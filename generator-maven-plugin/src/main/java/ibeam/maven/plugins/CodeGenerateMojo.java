@@ -15,17 +15,16 @@ import ibeam.code.template.FreeMaker;
 import ibeam.jdbc.Column;
 import ibeam.jdbc.Table;
 import ibeam.jdbc.TableParser;
-import ibeam.log.BizLogger;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.instrument.IllegalClassFormatException;
@@ -33,81 +32,90 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 /**
- * Implementation of the generator:code goal.
+ * Implementation of the ibeam code generator
  *
  * @author zhushaoping
  * @version $Id$
- * @goal code
- * @phase process-sources
+ * @goal generate
+ * @phase generate-sources
  * @requiresProject true
  */
 //@Mojo(name = "check", defaultPhase = LifecyclePhase.GENERATE_SOURCES,
 //		requiresDependencyResolution = ResolutionScope.COMPILE,
-//		threadSafe = false )
+//		threadSafe = false )process-sources
 public class CodeGenerateMojo extends AbstractMojo {
 
     /**
      * set if generator should overwrite the exist code or update file
      *
-     * @parameter expression="${overWriteDao}" default-value="false"
+     * @parameter expression="${ibeam.generator.overWriteDao}" default-value="false"
      * @since 1.0
      */
-    @Parameter(property = "overWriteClass", defaultValue = "false")
     private boolean overWriteClass;
 
     /**
      * tables which won't generate code for, support regex
      *
-     * @parameter expression="${ignoreTables}" default-value=""
+     * @parameter expression="${ibeam.generator.ignoreTables}" default-value=""
      * @since 1.0
      */
-    @Parameter(property = "ignoreTables", defaultValue = "")
     private String ignoreTables;
 
     /**
      * 要忽略的表名,使用,分隔
      *
-     * @parameter expression="${ignoreTables}" default-value=""
+     * @parameter expression="${encoding}" default-value="UTF-8"
      * @since 1.0
      */
-    @Parameter(property = "encoding", defaultValue = "UTF-8")
     private String encoding;
 
     /**
      * base package
      *
-     * @parameter expression="${basePackage}"
+     * @parameter expression="${ibeam.generator.basePackage}"
      * @since 1.0
      */
-    @Parameter(property = "basePackage", required = true)
     private String basePackage;
 
     /**
      * database to read
      *
-     * @parameter expression="${database}"
+     * @parameter expression="${ibeam.generator.database}"
+     * @required
      * @since 1.0
      */
-    @Parameter(property = "database", required = true)
     private String database;
 
     /**
      * replace table name with blank string, support regex
      *
-     * @parameter expression="${tableReplaceRegex}" default-value="([-_][0-9]+)"
+     * @parameter expression="${ibeam.generator.tableIgnoreRegex}" default-value="([-_][0-9]+)"
      * @since 1.0
      */
-    @Parameter(property = "tableReplaceRegex")
-    private String tableReplaceRegex;
+    private String tableIgnoreRegex;
+
+    /**
+     * when convert table name to class name, which chars will be ignored
+     *
+     * @parameter expression="${ibeam.generator.classIgnoreRegex}" default-value=""
+     * @since 1.0
+     */
+    private String classIgnoreRegex;
 
     /**
      * freeMaker template root path
      *
-     * @parameter expression="${templatePath}" default-value=""
+     * @parameter expression="${ibeam.generator.templatePath}" default-value=""
      * @since 1.0
      */
-    @Parameter(property = "templatePath")
     private String templatePath;
+
+    /**
+     * Skip generator
+     *
+     * @parameter expression="${ibeam.generator.skip}" default-value=false
+     */
+    private boolean skip;
 
     /**
      * Root location of the local maven repository.
@@ -130,7 +138,7 @@ public class CodeGenerateMojo extends AbstractMojo {
 
     private String getJdbcParam(Properties properties, String db, String env, String name) {
         String key = env + ".jdbc.";
-        if (BeamUtils.isNotBlank(name)) {
+        if (BeamUtils.isNotBlank(db)) {
             key += db + ".";
         }
         key += name;
@@ -153,23 +161,20 @@ public class CodeGenerateMojo extends AbstractMojo {
         try {
             getLog().info("BEGIN");
 
-            if (BeamUtils.isBlank(this.tableReplaceRegex)) {
-                this.tableReplaceRegex = "[-_][0-9]+";
+            if (BeamUtils.isBlank(this.tableIgnoreRegex)) {
+                this.tableIgnoreRegex = "[-_][0-9]+";
             }
-            final Pattern pattern = Pattern.compile(this.tableReplaceRegex);
+            final Pattern tableNamePatten = Pattern.compile(this.tableIgnoreRegex);
             Converter<String, String> tableNameBuilder = new Converter<String, String>() {
                 @Override
                 public String convert(String value) throws IllegalArgumentException {
-                    return pattern.matcher(value).replaceAll("");
+                    return tableNamePatten.matcher(value).replaceAll("");
                 }
             };
 
             if (BeamUtils.isBlank(this.basePackage)) {
-                getLog().info("basePackage not set, will guess from directory in project");
-                File[] files = sourceDir.listFiles();
-                if (null == files || files.length == 0) {
-                    this.basePackage = "";
-                }
+                this.basePackage = "";
+                getLog().info("basePackage not set, will generate code at src/main/java/");
             }
 
             Properties properties = this.loadProperty(rootDir);
@@ -192,9 +197,17 @@ public class CodeGenerateMojo extends AbstractMojo {
             Collection<Table> tables = tableParser.parse(this.ignoreTables, tableNameBuilder);
             CodeMaker codeMaker = buildCodeMaker(rootDir);
             ReusableStringWriter writer = new ReusableStringWriter(1000);
+            getLog().info("classIgnore: " + this.classIgnoreRegex);
+            final Pattern classNamePattern = BeamUtils.isNotBlank(this.classIgnoreRegex)?
+                    Pattern.compile(this.classIgnoreRegex): null;
             for (Table table : tables) {
                 String domain = StringUtils.replaceAll(table.getDatabase(), "_-", ".");
-                table.setClassName(StringUtils.capitalize(BeamUtils.toPropertyName(table.getName())));
+                String className = table.getName();
+                if(null != classNamePattern){
+                    className = classNamePattern.matcher(className).replaceAll("");
+                }
+                table.setClassName(StringUtils.capitalize(BeamUtils.toPropertyName(className)));
+                getLog().info("table: [" + table.getName() + "] to: [" + table.getClassName() + "]" );
                 if (table.getShardCount() > 1) {
                     table.addPackage(ShardByMod.class);
                     table.addAnnotation("@ShardByMod(value = " + table.getShardCount() + ")");
@@ -279,7 +292,7 @@ public class CodeGenerateMojo extends AbstractMojo {
         String packageName = packageDeclaration.get().getNameAsString();
         ClassOrInterfaceDeclaration classDeclaration = (ClassOrInterfaceDeclaration) cu.getTypes().get(0);
         String className = classDeclaration.getNameAsString();
-        return FileUtils.getFile(sourceDir, StringUtils.split(packageName + "." + className, "."));
+        return FileUtils.getFile(sourceDir, StringUtils.split(packageName + "." + className, ".java"));
     }
 
     private String render(ReusableStringWriter writer, CodeMaker codeMaker, String name, Map<String, Object> model) throws IOException {
@@ -293,8 +306,14 @@ public class CodeGenerateMojo extends AbstractMojo {
 
     private Properties loadProperty(File rootDir) throws IOException {
         File filePath = FileUtils.getFile(rootDir, "src", "main", "resources", "application.properties");
-        try (InputStream in =
-                     ClassLoader.getSystemResourceAsStream(filePath.getAbsolutePath())) {
+        if (!filePath.exists()) {
+            filePath = FileUtils.getFile(rootDir, "src", "test", "resources", "application.properties");
+        }
+        if (!filePath.exists()) {
+            throw new IOException("application.properties must set under /src/main/resources/ or /src/test/resources/");
+        }
+        getLog().info("application.properties at " + filePath.getAbsolutePath());
+        try (InputStream in = new FileInputStream(filePath)) {
             Properties properties = new Properties();
             properties.load(in);
             return properties;
@@ -336,6 +355,10 @@ public class CodeGenerateMojo extends AbstractMojo {
      */
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
+        if (skip) {
+            getLog().info( "IBeam code generator is skipped." );
+            return;
+        }
         this.executeCleanLocalRepositoryGoals();
     }
 
