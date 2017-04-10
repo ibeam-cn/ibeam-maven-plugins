@@ -1,6 +1,7 @@
 package ibeam.maven.plugins;
 
 import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.PackageDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -308,15 +309,21 @@ public class CodeGenerateMojo extends AbstractMojo {
     }
 
     private File getCodeFile(File sourceDir, String code) throws IllegalClassFormatException {
-        CompilationUnit cu = JavaParser.parse(code);
-        Optional<PackageDeclaration> packageDeclaration = cu.getPackageDeclaration();
-        if (!packageDeclaration.isPresent()) {
+        try {
+            CompilationUnit cu = JavaParser.parse(code);
+            Optional<PackageDeclaration> packageDeclaration = cu.getPackageDeclaration();
+            if (!packageDeclaration.isPresent()) {
+                throw new IllegalClassFormatException("no package set in the code for entity: \n" + code);
+            }
+            String packageName = packageDeclaration.get().getNameAsString();
+            ClassOrInterfaceDeclaration classDeclaration = (ClassOrInterfaceDeclaration) cu.getTypes().get(0);
+            File parentFile = FileUtils.getFile(sourceDir, StringUtils.split(packageName, '.'));
+            return FileUtils.getFile(parentFile, classDeclaration.getNameAsString() + ".java");
+        } catch (ParseProblemException e) {
+            getLog().error(e);
             throw new IllegalClassFormatException("no package set in the code for entity: \n" + code);
         }
-        String packageName = packageDeclaration.get().getNameAsString();
-        ClassOrInterfaceDeclaration classDeclaration = (ClassOrInterfaceDeclaration) cu.getTypes().get(0);
-        File parentFile = FileUtils.getFile(sourceDir, StringUtils.split(packageName, '.'));
-        return FileUtils.getFile(parentFile, classDeclaration.getNameAsString() + ".java");
+
     }
 
     private String render(ReusableStringWriter writer, CodeMaker codeMaker, String name, Map<String, Object> model) throws IOException {
