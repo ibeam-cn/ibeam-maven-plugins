@@ -18,6 +18,7 @@ import ibeam.jdbc.Table;
 import ibeam.jdbc.TableParser;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.DateFormatUtils;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.plugin.AbstractMojo;
@@ -236,6 +237,7 @@ public class CodeGenerateMojo extends AbstractMojo {
                 model.put("table", table);
                 model.put("domain", domain);
                 model.put("database", this.database);
+                model.put("time", DateFormatUtils.format(new java.util.Date(), "yyyy-MM-dd HH:mm:ss"));
 
                 String code = render(writer, codeMaker, "entity", model);
                 File codeFile = getCodeFile(sourceDir, code);
