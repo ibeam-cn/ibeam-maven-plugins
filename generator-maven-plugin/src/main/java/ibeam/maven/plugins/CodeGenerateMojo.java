@@ -98,13 +98,13 @@ public class CodeGenerateMojo extends AbstractMojo {
     private String basePackage;
 
     /**
-     * database to read
+     * datasource to read
      *
-     * @parameter expression="${database}"
+     * @parameter expression="${datasource}"
      * @required
      * @since 1.0
      */
-    private String database;
+    private String datasource;
 
     /**
      * replace table name with blank string, support regex
@@ -191,19 +191,19 @@ public class CodeGenerateMojo extends AbstractMojo {
             Properties properties = this.loadProperty(rootDir);
             String env = properties.getProperty("environment", "dev");
 
-            String userName = getJdbcParam(properties, this.database, env, "username");
-            String password = getJdbcParam(properties, this.database, env, "password");
-            String jdbcUrl = getJdbcParam(properties, this.database, env, "url");
+            String userName = getJdbcParam(properties, this.datasource, env, "username");
+            String password = getJdbcParam(properties, this.datasource, env, "password");
+            String jdbcUrl = getJdbcParam(properties, this.datasource, env, "url");
 
             if (BeamUtils.isBlank(jdbcUrl)) {
-                if (BeamUtils.isNotBlank(this.database)) {
-                    throw new IllegalArgumentException("database setting in application properties need to set for " + this.database);
+                if (BeamUtils.isNotBlank(this.datasource)) {
+                    throw new IllegalArgumentException("database setting in application properties need to set for " + this.datasource);
                 } else {
                     throw new IllegalArgumentException("database name need to set!");
                 }
             }
 
-            TableParser tableParser = new TableParser(userName, password, jdbcUrl);
+            TableParser tableParser = new TableParser(userName, password, jdbcUrl, this.datasource);
             tableParser.setLogger(new MavenBizLogger(getLog()));
             Collection<Table> tables = tableParser.parse(this.ignoreTables, tableNameBuilder);
             CodeMaker codeMaker = buildCodeMaker(rootDir);
@@ -216,7 +216,7 @@ public class CodeGenerateMojo extends AbstractMojo {
                 getLog().info("won't generate web related class as there is no cn.ibeam.web dependency in POM");
             }
             for (Table table : tables) {
-                String domain = StringUtils.replaceEachRepeatedly(this.database,
+                String domain = StringUtils.replaceEachRepeatedly(this.datasource,
                         new String[]{"_", "-"}, new String[]{".", "."});
                 String className = table.getName();
                 if (null != classNamePattern) {
@@ -236,7 +236,7 @@ public class CodeGenerateMojo extends AbstractMojo {
                 Map<String, Object> model = new HashMap<>();
                 model.put("table", table);
                 model.put("domain", domain);
-                model.put("database", this.database);
+                model.put("datasource", this.datasource);
                 model.put("time", DateFormatUtils.format(new java.util.Date(), "yyyy-MM-dd HH:mm:ss"));
 
                 String code = render(writer, codeMaker, "entity", model);
