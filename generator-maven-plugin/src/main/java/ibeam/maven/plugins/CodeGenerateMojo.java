@@ -24,6 +24,10 @@ import org.apache.maven.model.Dependency;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 
 import java.io.File;
@@ -39,102 +43,112 @@ import java.util.regex.Pattern;
  *
  * @author zhushaoping
  * @version $Id$
- * @goal generate
- * @phase generate-sources
- * @requiresProject true
  */
-//@Mojo(name = "check", defaultPhase = LifecyclePhase.GENERATE_SOURCES,
-//		requiresDependencyResolution = ResolutionScope.COMPILE,
-//		threadSafe = false )process-sources
+@Mojo(name = "generate", defaultPhase = LifecyclePhase.GENERATE_SOURCES,
+        requiresDependencyResolution = ResolutionScope.COMPILE,
+        threadSafe = false)
 public class CodeGenerateMojo extends AbstractMojo {
     /**
      * Root location of the local maven repository.
      *
-     * @parameter expression="${localRepository}"
+     * @parameter property="localRepository"
      * @readonly
      * @required
      */
+    @Parameter( defaultValue = "${localRepository}",
+            readonly = true, required = true )
     private ArtifactRepository localMavenRepository;
 
 
     /**
      * Current project definition
      *
-     * @parameter expression="${project}"
+     * @parameter property="project"
      * @readonly
      */
+    @Parameter( defaultValue = "${project}",
+            readonly = true, required = true )
     private MavenProject project;
 
     /**
      * set if generator should overwrite the exist code or update file
      *
-     * @parameter expression="${overWriteDao}" default-value="false"
+     * @parameter property="overWriteClass" default-value="false"
      * @since 1.0
      */
+    @Parameter(property = "overWriteClass")
     private boolean overWriteClass;
 
     /**
      * tables which won't generate code for, support regex
      *
-     * @parameter expression="${ignoreTables}" default-value=""
+     * @parameter property="ignoreTables" default-value=""
      * @since 1.0
      */
+    @Parameter(property = "ignoreTables")
     private String ignoreTables;
 
     /**
      * source code encoding, default is UTF-8
      *
-     * @parameter expression="${encoding}" default-value="UTF-8"
+     * @parameter property="encoding" default-value="UTF-8"
      * @since 1.0
      */
+    @Parameter(property = "encoding", defaultValue = "UTF-8")
     private String encoding;
 
     /**
      * base package
      *
-     * @parameter expression="${basePackage}"
+     * @parameter property="basePackage"
      * @since 1.0
      */
+    @Parameter(property = "basePackage")
     private String basePackage;
 
     /**
      * datasource to read
+     * will read default db if leave blank
      *
-     * @parameter expression="${datasource}"
-     * @required
+     * @parameter property="datasource"
      * @since 1.0
      */
+    @Parameter(property = "datasource")
     private String datasource;
 
     /**
      * replace table name with blank string, support regex
      *
-     * @parameter expression="${tableIgnoreRegex}" default-value="([-_][0-9]+)"
+     * @parameter property="tableIgnoreRegex" default-value="([-_][0-9]+)"
      * @since 1.0
      */
+    @Parameter(property = "tableIgnoreRegex", defaultValue = "([-_][0-9]+)")
     private String tableIgnoreRegex;
 
     /**
      * when convert table name to class name, which chars will be ignored
      *
-     * @parameter expression="${classIgnoreRegex}" default-value=""
+     * @parameter property="classIgnoreRegex" default-value=""
      * @since 1.0
      */
+    @Parameter(property = "classIgnoreRegex")
     private String classIgnoreRegex;
 
     /**
      * freeMaker template root path
      *
-     * @parameter expression="${templatePath}" default-value=""
+     * @parameter property="templatePath" default-value=""
      * @since 1.0
      */
+    @Parameter(property = "templatePath")
     private String templatePath;
 
     /**
      * Skip generator
      *
-     * @parameter expression="${skip}" default-value=false
+     * @parameter property="skip" default-value=false
      */
+    @Parameter(property = "skip", defaultValue = "false")
     private boolean skip;
 
 
