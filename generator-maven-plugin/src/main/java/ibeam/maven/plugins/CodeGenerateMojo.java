@@ -55,8 +55,8 @@ public class CodeGenerateMojo extends AbstractMojo {
      * @readonly
      * @required
      */
-    @Parameter( defaultValue = "${localRepository}",
-            readonly = true, required = true )
+    @Parameter(defaultValue = "${localRepository}",
+            readonly = true, required = true)
     private ArtifactRepository localMavenRepository;
 
 
@@ -66,8 +66,8 @@ public class CodeGenerateMojo extends AbstractMojo {
      * @parameter property="project"
      * @readonly
      */
-    @Parameter( defaultValue = "${project}",
-            readonly = true, required = true )
+    @Parameter(defaultValue = "${project}",
+            readonly = true, required = true)
     private MavenProject project;
 
     /**
@@ -222,22 +222,27 @@ public class CodeGenerateMojo extends AbstractMojo {
             Collection<Table> tables = tableParser.parse(this.ignoreTables, tableNameBuilder);
             CodeMaker codeMaker = buildCodeMaker(rootDir);
             ReusableStringWriter writer = new ReusableStringWriter(1000);
-            getLog().info("classIgnore: " + this.classIgnoreRegex);
+            getLog().info("env: " + env + ", url: " + jdbcUrl + ", user: " + userName
+                    + ", basePackage: " + this.basePackage + ", classIgnore: " + this.classIgnoreRegex);
             final Pattern classNamePattern = BeamUtils.isNotBlank(this.classIgnoreRegex) ?
                     Pattern.compile(this.classIgnoreRegex) : null;
             boolean shouldGenerateWebApi = this.shouldGenerateWebApi();
             if (!shouldGenerateWebApi) {
                 getLog().info("won't generate web related class as there is no cn.ibeam.web dependency in POM");
             }
+            String defaultDomain = StringUtils.replaceEachRepeatedly(this.datasource,
+                    new String[]{"_", "-"}, new String[]{".", "."});
             for (Table table : tables) {
-                String domain = StringUtils.replaceEachRepeatedly(this.datasource,
-                        new String[]{"_", "-"}, new String[]{".", "."});
                 String className = table.getName();
                 if (null != classNamePattern) {
                     className = classNamePattern.matcher(className).replaceAll("");
                 }
                 table.setClassName(StringUtils.capitalize(BeamUtils.toPropertyName(className)));
-                getLog().info("table: [" + table.getName() + "] to: [" + table.getClassName() + "]");
+                String domain =
+                        BeamUtils.isNotBlank(defaultDomain) ? defaultDomain :
+                                StringUtils.replaceEachRepeatedly(table.getDatabase(),
+                                        new String[]{"_", "-"}, new String[]{".", "."});
+                getLog().info("domain: [" + domain + "], table: [" + table.getName() + "] to: [" + table.getClassName() + "]");
                 if (table.getShardCount() > 1) {
                     table.addPackage(ShardByMod.class);
                     table.addAnnotation("@ShardByMod(value = " + table.getShardCount() + ")");
