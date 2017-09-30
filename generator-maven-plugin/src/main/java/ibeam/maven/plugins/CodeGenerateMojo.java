@@ -114,7 +114,7 @@ public class CodeGenerateMojo extends AbstractMojo {
      * @since 1.0
      */
     @Parameter(property = "datasource")
-    private String datasource;
+    private String[] datasource;
 
     /**
      * replace table name with blank string, support regex
@@ -124,6 +124,16 @@ public class CodeGenerateMojo extends AbstractMojo {
      */
     @Parameter(property = "tableIgnoreRegex", defaultValue = "([-_][0-9]+)")
     private String tableIgnoreRegex;
+
+
+    /**
+     * only generate classes with selected tables
+     *
+     * @parameter property="tables"
+     * @since 1.0
+     */
+    @Parameter(property = "tables")
+    private String[] tables;
 
     /**
      * when convert table name to class name, which chars will be ignored
@@ -157,6 +167,21 @@ public class CodeGenerateMojo extends AbstractMojo {
         if (BeamUtils.isNotBlank(db)) {
             key += db + ".";
         }
+        key += name;
+        String data = properties.getProperty(key);
+        if (BeamUtils.isNotBlank(data)) {
+            return data;
+        } else {
+            return getJdbcParamWithDbPrefix(properties, db, env, name);
+        }
+    }
+
+    private String getJdbcParamWithDbPrefix(Properties properties, String db, String env, String name) {
+        String key = env;
+        if (BeamUtils.isNotBlank(db)) {
+            key += "." + db;
+        }
+        key += ".jdbc.";
         key += name;
         return properties.getProperty(key);
     }
@@ -205,100 +230,18 @@ public class CodeGenerateMojo extends AbstractMojo {
             Properties properties = this.loadProperty(rootDir);
             String env = properties.getProperty("environment", "dev");
 
-            String userName = getJdbcParam(properties, this.datasource, env, "username");
-            String password = getJdbcParam(properties, this.datasource, env, "password");
-            String jdbcUrl = getJdbcParam(properties, this.datasource, env, "url");
-
-            if (BeamUtils.isBlank(jdbcUrl)) {
-                if (BeamUtils.isNotBlank(this.datasource)) {
-                    throw new IllegalArgumentException("database setting in application properties need to set for " + this.datasource);
-                } else {
-                    throw new IllegalArgumentException("database name need to set!");
+            Set<String> targetTableSet = new HashSet<>();
+            if (null != this.tables && this.tables.length > 0) {
+                for (String table : this.tables) {
+                    targetTableSet.add(table);
                 }
             }
 
-            TableParser tableParser = new TableParser(userName, password, jdbcUrl, this.datasource);
-            tableParser.setLogger(new MavenBizLogger(getLog()));
-            Collection<Table> tables = tableParser.parse(this.ignoreTables, tableNameBuilder);
-            CodeMaker codeMaker = buildCodeMaker(rootDir);
-            ReusableStringWriter writer = new ReusableStringWriter(1000);
-            getLog().info("env: " + env + ", url: " + jdbcUrl + ", user: " + userName
-                    + ", basePackage: " + this.basePackage + ", classIgnore: " + this.classIgnoreRegex);
-            final Pattern classNamePattern = BeamUtils.isNotBlank(this.classIgnoreRegex) ?
-                    Pattern.compile(this.classIgnoreRegex) : null;
-            boolean shouldGenerateWebApi = this.shouldGenerateWebApi();
-            if (!shouldGenerateWebApi) {
-                getLog().info("won't generate web related class as there is no cn.ibeam.web dependency in POM");
-            }
-            String defaultDomain = StringUtils.replaceEachRepeatedly(this.datasource,
-                    new String[]{"_", "-"}, new String[]{".", "."});
-            for (Table table : tables) {
-                String className = table.getName();
-                if (null != classNamePattern) {
-                    className = classNamePattern.matcher(className).replaceAll("");
-                }
-                table.setClassName(StringUtils.capitalize(BeamUtils.toPropertyName(className)));
-                String domain =
-                        BeamUtils.isNotBlank(defaultDomain) ? defaultDomain :
-                                StringUtils.replaceEachRepeatedly(table.getDatabase(),
-                                        new String[]{"_", "-"}, new String[]{".", "."});
-                getLog().info("domain: [" + domain + "], table: [" + table.getName() + "] to: [" + table.getClassName() + "]");
-                if (table.getShardCount() > 1) {
-                    table.addPackage(ShardByMod.class);
-                    table.addAnnotation("@ShardByMod(value = " + table.getShardCount() + ")");
-                }
-
-                for (Column column : table.getColumns()) {
-                    column.setField(BeamUtils.toPropertyName(column.getName()));
-                }
-
-                Map<String, Object> model = new HashMap<>();
-                model.put("table", table);
-                model.put("domain", domain);
-                model.put("datasource", this.datasource);
-                model.put("time", DateFormatUtils.format(new java.util.Date(), "yyyy-MM-dd HH:mm:ss"));
-
-                String code = render(writer, codeMaker, "entity", model);
-                File codeFile = getCodeFile(sourceDir, code);
-                if (codeFile.exists()) {
-                    if (this.overWriteClass) {
-                        getLog().info(codeFile.getAbsolutePath() + " will be overwrite " + table.getName());
-                        code = CodeUtils.overWriteEntity(table, FileUtils.readFileToString(codeFile, this.encoding));
-                        FileUtils.writeStringToFile(codeFile, code, this.encoding);
-                    } else {
-                        getLog().info(codeFile.getAbsolutePath() + " exist, will ignore " + table.getName());
-                    }
-                } else {
-                    FileUtils.writeStringToFile(codeFile, code, this.encoding);
-                }
-
-                String suffix = table.getShardCount() > 1 ? "_shard" : "";
-                code = render(writer, codeMaker, "dao" + suffix, model);
-                codeFile = getCodeFile(sourceDir, code);
-                if (codeFile.exists()) {
-                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
-                } else {
-                    FileUtils.writeStringToFile(codeFile, code, this.encoding);
-                }
-
-                code = render(writer, codeMaker, "service" + suffix, model);
-
-                codeFile = getCodeFile(sourceDir, code);
-                if (codeFile.exists()) {
-                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
-                } else {
-                    FileUtils.writeStringToFile(codeFile, code, this.encoding);
-                }
-
-                if (shouldGenerateWebApi) {
-                    code = render(writer, codeMaker, "api_controller" + suffix, model);
-                    codeFile = getCodeFile(sourceDir, code);
-                    if (codeFile.exists()) {
-                        getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
-                    } else {
-                        FileUtils.writeStringToFile(codeFile, code, this.encoding);
-                    }
-                }
+            for (String db : this.datasource) {
+                getLog().info("Generate for: " + db);
+                generate(db, properties, env, rootDir, sourceDir,
+                        targetTableSet, tableNameBuilder);
+                getLog().info("End generate for: " + db);
             }
 
             getLog().info("END");
@@ -310,6 +253,106 @@ public class CodeGenerateMojo extends AbstractMojo {
 //		getLog().info(JSON.toJSONString(project.getResources()));
         ///Users/juju/work/yitao/svn/bi/trunk/bi/pom.xml
 
+    }
+
+    private void generate(String db, Properties properties, String env, File rootDir,
+                          File sourceDir, Set<String> targetTableSet,
+                          Converter<String, String> tableNameBuilder) throws Exception {
+        String userName = getJdbcParam(properties, db, env, "username");
+        String password = getJdbcParam(properties, db, env, "password");
+        String jdbcUrl = getJdbcParam(properties, db, env, "url");
+
+        if (BeamUtils.isBlank(jdbcUrl)) {
+            if (BeamUtils.isNotBlank(db)) {
+                throw new IllegalArgumentException("database setting in application properties need to set for " + db);
+            } else {
+                throw new IllegalArgumentException("database name need to set!");
+            }
+        }
+
+        TableParser tableParser = new TableParser(userName, password, jdbcUrl, db);
+        tableParser.setLogger(new MavenBizLogger(getLog()));
+        Collection<Table> tables = tableParser.parse(this.ignoreTables, targetTableSet, tableNameBuilder);
+        CodeMaker codeMaker = buildCodeMaker(rootDir);
+        ReusableStringWriter writer = new ReusableStringWriter(1000);
+        getLog().info("env: " + env + ", url: " + jdbcUrl + ", user: " + userName
+                + ", basePackage: " + this.basePackage + ", classIgnore: " + this.classIgnoreRegex);
+        final Pattern classNamePattern = BeamUtils.isNotBlank(this.classIgnoreRegex) ?
+                Pattern.compile(this.classIgnoreRegex) : null;
+        boolean shouldGenerateWebApi = this.shouldGenerateWebApi();
+        if (!shouldGenerateWebApi) {
+            getLog().info("won't generate web related class as there is no cn.ibeam.web dependency in POM");
+        }
+        String defaultDomain = StringUtils.replaceEachRepeatedly(db,
+                new String[]{"_", "-"}, new String[]{".", "."});
+        for (Table table : tables) {
+            String className = table.getName();
+            if (null != classNamePattern) {
+                className = classNamePattern.matcher(className).replaceAll("");
+            }
+            table.setClassName(StringUtils.capitalize(BeamUtils.toPropertyName(className)));
+            String domain =
+                    BeamUtils.isNotBlank(defaultDomain) ? defaultDomain :
+                            StringUtils.replaceEachRepeatedly(table.getDatabase(),
+                                    new String[]{"_", "-"}, new String[]{".", "."});
+            getLog().info("domain: [" + domain + "], table: [" + table.getName() + "] to: [" + table.getClassName() + "]");
+            if (table.getShardCount() > 1) {
+                table.addPackage(ShardByMod.class);
+                table.addAnnotation("@ShardByMod(value = " + table.getShardCount() + ")");
+            }
+
+            for (Column column : table.getColumns()) {
+                column.setField(BeamUtils.toPropertyName(column.getName()));
+            }
+
+            Map<String, Object> model = new HashMap<>();
+            model.put("table", table);
+            model.put("domain", domain);
+            model.put("datasource", db);
+            model.put("time", DateFormatUtils.format(new java.util.Date(), "yyyy-MM-dd HH:mm:ss"));
+
+            String code = render(writer, codeMaker, "entity", model);
+            File codeFile = getCodeFile(sourceDir, code);
+            if (codeFile.exists()) {
+                if (this.overWriteClass) {
+                    getLog().info(codeFile.getAbsolutePath() + " will be overwrite " + table.getName());
+                    code = CodeUtils.overWriteEntity(table, FileUtils.readFileToString(codeFile, this.encoding));
+                    FileUtils.writeStringToFile(codeFile, code, this.encoding);
+                } else {
+                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore " + table.getName());
+                }
+            } else {
+                FileUtils.writeStringToFile(codeFile, code, this.encoding);
+            }
+
+            String suffix = table.getShardCount() > 1 ? "_shard" : "";
+            code = render(writer, codeMaker, "dao" + suffix, model);
+            codeFile = getCodeFile(sourceDir, code);
+            if (codeFile.exists()) {
+                getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
+            } else {
+                FileUtils.writeStringToFile(codeFile, code, this.encoding);
+            }
+
+            code = render(writer, codeMaker, "service" + suffix, model);
+
+            codeFile = getCodeFile(sourceDir, code);
+            if (codeFile.exists()) {
+                getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
+            } else {
+                FileUtils.writeStringToFile(codeFile, code, this.encoding);
+            }
+
+            if (shouldGenerateWebApi) {
+                code = render(writer, codeMaker, "api_controller" + suffix, model);
+                codeFile = getCodeFile(sourceDir, code);
+                if (codeFile.exists()) {
+                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
+                } else {
+                    FileUtils.writeStringToFile(codeFile, code, this.encoding);
+                }
+            }
+        }
     }
 
     private CodeMaker buildCodeMaker(File rootDir) throws IOException, TemplateException {
