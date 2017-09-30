@@ -181,8 +181,8 @@ public class CodeGenerateMojo extends AbstractMojo {
         if (BeamUtils.isNotBlank(db)) {
             key += "." + db;
         }
-        key += ".jdbc.";
-        key += name;
+        key += ".jdbc." + name;
+        getLog().info("read from [" + key + "]");
         return properties.getProperty(key);
     }
 
@@ -264,7 +264,7 @@ public class CodeGenerateMojo extends AbstractMojo {
 
         if (BeamUtils.isBlank(jdbcUrl)) {
             if (BeamUtils.isNotBlank(db)) {
-                throw new IllegalArgumentException("database setting in application properties need to set for " + db);
+                throw new IllegalArgumentException("database setting in application.properties need to set for " + db);
             } else {
                 throw new IllegalArgumentException("database name need to set!");
             }
