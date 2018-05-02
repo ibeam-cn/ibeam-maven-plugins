@@ -369,7 +369,13 @@ public class CodeGenerateMojo extends AbstractMojo {
                 templateDir = FileUtils.getFile(rootDir, this.templatePath);
             }
         }
-        return new FreeMaker(this.basePackage, templateDir, this.encoding);
+        if (BeamUtils.isNotBlank(basePackage) && !basePackage.endsWith(".")) {
+            basePackage += ".";
+        }
+        FreeMaker codeMaker =
+                new FreeMaker(templateDir, "/code/ftl", this.encoding);
+        codeMaker.setSharedVariable("basePackage", this.basePackage);
+        return codeMaker;
     }
 
     private File getCodeFile(File sourceDir, String code) throws IllegalClassFormatException {
