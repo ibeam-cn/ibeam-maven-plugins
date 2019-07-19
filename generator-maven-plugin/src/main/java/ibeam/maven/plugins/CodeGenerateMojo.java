@@ -13,9 +13,10 @@ import ibeam.code.CodeMaker;
 import ibeam.code.CodeUtils;
 import ibeam.code.ReusableStringWriter;
 import ibeam.code.template.FreeMaker;
-import ibeam.jdbc.Column;
-import ibeam.jdbc.Table;
-import ibeam.jdbc.TableParser;
+import ibeam.code.vo.EntityField;
+import ibeam.code.vo.EntityTable;
+import ibeam.code.vo.GenerateInfo;
+import ibeam.jdbc.EntityParser;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.DateFormatUtils;
@@ -154,6 +155,15 @@ public class CodeGenerateMojo extends AbstractMojo {
     private String templatePath;
 
     /**
+     * freeMaker packageName template code
+     *
+     * @parameter property="packageName" default-value="${BASE_PKG_NAME}.${DOMAIN}.${TYPE}"
+     * @since 1.0
+     */
+    @Parameter(property = "packageName")
+    private String packageName;
+
+    /**
      * Skip generator
      *
      * @parameter property="skip" default-value=false
@@ -270,10 +280,20 @@ public class CodeGenerateMojo extends AbstractMojo {
             }
         }
 
-        TableParser tableParser = new TableParser(userName, password, jdbcUrl, db);
-        tableParser.setLogger(new MavenBizLogger(getLog()));
-        Collection<Table> tables = tableParser.parse(this.ignoreTables, targetTableSet, tableNameBuilder);
+        EntityParser entityParser = new EntityParser(userName, password, jdbcUrl, db);
+        entityParser.setLogger(new MavenBizLogger(getLog()));
+        Collection<EntityTable> tables = entityParser.parse(this.ignoreTables, targetTableSet, tableNameBuilder);
         CodeMaker codeMaker = buildCodeMaker(rootDir);
+
+        CodeUtils.addTemplate(codeMaker, "entity", "${BASE_PKG_NAME}.${DOMAIN}.entity",
+                "${entity.className}");
+        CodeUtils.addTemplate(codeMaker, "dao", "${BASE_PKG_NAME}.${DOMAIN}.repository",
+                "${entity.className}Dao");
+        CodeUtils.addTemplate(codeMaker, "service", "${BASE_PKG_NAME}.${DOMAIN}.service",
+                "${entity.className}Service");
+        CodeUtils.addTemplate(codeMaker, "api_controller", "${BASE_PKG_NAME}.${DOMAIN}.api",
+                "${entity.className}ApiController");
+
         ReusableStringWriter writer = new ReusableStringWriter(1000);
         getLog().info("env: " + env + ", url: " + jdbcUrl + ", user: " + userName
                 + ", basePackage: " + this.basePackage + ", classIgnore: " + this.classIgnoreRegex);
@@ -285,69 +305,85 @@ public class CodeGenerateMojo extends AbstractMojo {
         }
         String defaultDomain = StringUtils.replaceEachRepeatedly(db,
                 new String[]{"_", "-"}, new String[]{".", "."});
-        for (Table table : tables) {
-            String className = table.getName();
-            if (null != classNamePattern) {
-                className = classNamePattern.matcher(className).replaceAll("");
-            }
-            table.setClassName(StringUtils.capitalize(BeamUtils.toPropertyName(className)));
+        for (EntityTable table : tables) {
             String domain =
                     BeamUtils.isNotBlank(defaultDomain) ? defaultDomain :
-                            StringUtils.replaceEachRepeatedly(table.getDatabase(),
+                            StringUtils.replaceEachRepeatedly(db,
                                     new String[]{"_", "-"}, new String[]{".", "."});
-            getLog().info("domain: [" + domain + "], table: [" + table.getName() + "] to: [" + table.getClassName() + "]");
+            getLog().info("domain: [" + domain + "], table: [" + table.getTableName() + "] to: [" + table.getClassName() + "]");
             if (table.getShardCount() > 1) {
                 table.addPackage(ShardByMod.class);
                 table.addAnnotation("@ShardByMod(value = " + table.getShardCount() + ")");
             }
 
-            for (Column column : table.getColumns()) {
-                column.setField(BeamUtils.toPropertyName(column.getName()));
+            for (EntityField column : table.getFields()) {
+                column.setField(BeamUtils.toPropertyName(column.getInfo().getName()));
             }
 
+            GenerateInfo entityInfo = GenerateInfo.from(table);
             Map<String, Object> model = new HashMap<>();
-            model.put("table", table);
-            model.put("domain", domain);
-            model.put("datasource", db);
-            model.put("time", DateFormatUtils.format(new java.util.Date(), "yyyy-MM-dd HH:mm:ss"));
+            Date now = new Date();
+            model.put("BASE_PKG_NAME", "ibeam.demo");
+            model.put("DOMAIN", db);
+            model.put("YEAR", DateFormatUtils.format(now, "yyyy"));
+            model.put("TIME", DateFormatUtils.format(now, "yyyy-MM-dd HH:mm:ss"));
+            model.put("USER", System.getProperty("user.name"));
+            String packageName = CodeUtils.getPackageName(codeMaker,
+                    "entity", model);
+            entityInfo.setPackageName(packageName);
+            model.put("entity", entityInfo);
+            model.put("primaryKey", entityInfo.getPrimaryKey());
+            GenerateInfo shardParam = null;
+            if(table.getShardCount() > 0){
+                Class shardParamType = Long.class;
+                shardParam = new GenerateInfo(shardParamType.getPackage().getName(),
+                        shardParamType.getSimpleName(), "");
+            }
+            model.put("shardParam", shardParam);
+
+            model.put("dao", CodeUtils.buildGenerateInfo(codeMaker, model, "dao"));
+            model.put("service", CodeUtils.buildGenerateInfo(codeMaker, model, "service"));
+            model.put("api_controller", CodeUtils.buildGenerateInfo(codeMaker, model, "api_controller"));
 
             String code = render(writer, codeMaker, "entity", model);
             File codeFile = getCodeFile(sourceDir, code);
             if (codeFile.exists()) {
                 if (this.overWriteClass) {
-                    getLog().info(codeFile.getAbsolutePath() + " will be overwrite " + table.getName());
+                    getLog().info(codeFile.getAbsolutePath() + " will be overwrite " + table.getTableName());
                     code = CodeUtils.overWriteEntity(table, FileUtils.readFileToString(codeFile, this.encoding));
                     FileUtils.writeStringToFile(codeFile, code, this.encoding);
                 } else {
-                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore " + table.getName());
+                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore " + table.getTableName());
                 }
             } else {
                 FileUtils.writeStringToFile(codeFile, code, this.encoding);
             }
 
-            String suffix = table.getShardCount() > 1 ? "_shard" : "";
-            code = render(writer, codeMaker, "dao" + suffix, model);
+            code = render(writer, codeMaker, "dao", model);
             codeFile = getCodeFile(sourceDir, code);
             if (codeFile.exists()) {
-                getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
+                getLog().info(codeFile.getAbsolutePath()
+                        + " exist, will ignore for " + table.getTableName());
             } else {
                 FileUtils.writeStringToFile(codeFile, code, this.encoding);
             }
 
-            code = render(writer, codeMaker, "service" + suffix, model);
+            code = render(writer, codeMaker, "service", model);
 
             codeFile = getCodeFile(sourceDir, code);
             if (codeFile.exists()) {
-                getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
+                getLog().info(codeFile.getAbsolutePath()
+                        + " exist, will ignore for " + table.getTableName());
             } else {
                 FileUtils.writeStringToFile(codeFile, code, this.encoding);
             }
 
             if (shouldGenerateWebApi) {
-                code = render(writer, codeMaker, "api_controller" + suffix, model);
+                code = render(writer, codeMaker, "api_controller", model);
                 codeFile = getCodeFile(sourceDir, code);
                 if (codeFile.exists()) {
-                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for " + table.getName());
+                    getLog().info(codeFile.getAbsolutePath() + " exist, will ignore for "
+                            + table.getTableName());
                 } else {
                     FileUtils.writeStringToFile(codeFile, code, this.encoding);
                 }
