@@ -88,7 +88,7 @@
     <jdbc.driver.artifactId>mysql-connector-java</jdbc.driver.artifactId>
     <jdbc.driver.version>5.1.27</jdbc.driver.version>
     <javax.inject.version>1</javax.inject.version>
-    <jetty-web.version>9.3.14.v20161028</jetty-web.version>
+    <jetty-web.version>9.4.34.v20201102</jetty-web.version>
     <alibaba-druid.version>1.0.26</alibaba-druid.version>
     <fastjson.version>1.2.12</fastjson.version>
     <commons-io.version>2.5</commons-io.version>
